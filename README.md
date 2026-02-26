@@ -10,6 +10,7 @@ A pure-Lua Neovim plugin that manipulates Timewarrior data files directly withou
 - `:TimewarriorToday` to open an editable *today* view.
 - Tag autocomplete in the today view via omnifunc (`<C-x><C-o>`).
 - Writes updates back to Timewarrior `.data` files.
+- `require("timewarrior").current_activity()` for status bar integration.
 
 ## Data source
 
@@ -45,3 +46,24 @@ Then write the buffer (`:write`) to persist changes.
 
 - Timestamps are written in Timewarrior UTC format: `YYYYMMDDTHHMMSSZ`.
 - The plugin currently targets `inc` intervals.
+
+## Lualine example
+
+You can surface the currently running activity in lualine:
+
+```lua
+require("lualine").setup({
+  sections = {
+    lualine_c = {
+      {
+        function()
+          return require("timewarrior").current_activity()
+        end,
+        cond = function()
+          return require("timewarrior").current_activity() ~= ""
+        end,
+      },
+    },
+  },
+})
+```

@@ -1,6 +1,5 @@
 local M = {}
 
-local uv = vim.uv or vim.loop
 
 local function split_words(s)
   local out = {}
@@ -179,6 +178,20 @@ function M.stop()
   open.lines[open.line_idx] = render_data_line(open.item)
   write_file_lines(open.file, open.lines)
   vim.notify("timewarrior: stopped interval", vim.log.levels.INFO)
+end
+
+function M.current_activity()
+  local open = find_last_open_interval()
+  if not open then
+    return ""
+  end
+
+  local tags = open.item.tags or {}
+  if #tags == 0 then
+    return "active"
+  end
+
+  return table.concat(tags, " ")
 end
 
 local function parse_today_buffer_line(line, day)
