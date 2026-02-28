@@ -45,7 +45,24 @@ Then write the buffer (`:write`) to persist changes.
 ## Notes
 
 - Timestamps are written in Timewarrior UTC format: `YYYYMMDDTHHMMSSZ`.
+- `:TimewarriorToday` displays and edits times in your local timezone, then saves back as UTC.
 - The plugin currently targets `inc` intervals.
+
+## Timezone regression checks
+
+Run the timezone harness to validate UTC/local conversions and local-day membership behavior across multiple `TZ` settings:
+
+```bash
+bash scripts/run_tz_regression.sh
+```
+
+The script runs the checks with `nvim --headless` for:
+
+- `UTC`
+- `Europe/Berlin`
+- `America/New_York`
+- `Asia/Tokyo`
+- `Pacific/Auckland`
 
 ## Lualine example
 

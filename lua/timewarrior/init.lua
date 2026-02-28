@@ -30,7 +30,7 @@ local function ensure_data_dir()
 end
 
 local function month_file_for_time(epoch)
-  return string.format("%s/%s.data", data_dir(), os.date("%Y-%m", epoch))
+  return string.format("%s/%s.data", data_dir(), os.date("!%Y-%m", epoch))
 end
 
 local function tw_timestamp(epoch)
@@ -42,15 +42,58 @@ local function parse_tw_timestamp(ts)
   if not y then
     return nil
   end
-  return os.time({
-    year = tonumber(y),
-    month = tonumber(m),
-    day = tonumber(d),
-    hour = tonumber(hh),
-    min = tonumber(mm),
-    sec = tonumber(ss),
-    isdst = false,
+  local year = tonumber(y)
+  local month = tonumber(m)
+  local day = tonumber(d)
+  local hour = tonumber(hh)
+  local min = tonumber(mm)
+  local sec = tonumber(ss)
+
+  local adjusted_year = year
+  if month <= 2 then
+    adjusted_year = adjusted_year - 1
+  end
+
+  local era = math.floor(adjusted_year / 400)
+  local year_of_era = adjusted_year - era * 400
+  local month_prime = month + (month > 2 and -3 or 9)
+  local day_of_year = math.floor((153 * month_prime + 2) / 5) + day - 1
+  local day_of_era = year_of_era * 365 + math.floor(year_of_era / 4) - math.floor(year_of_era / 100) + day_of_year
+  local days_since_epoch = era * 146097 + day_of_era - 719468
+
+  return days_since_epoch * 86400 + hour * 3600 + min * 60 + sec
+end
+
+local function local_day_window(epoch)
+  local t = os.date("*t", epoch or os.time())
+  t.hour = 0
+  t.min = 0
+  t.sec = 0
+  t.isdst = nil
+
+  local start_epoch = os.time(t)
+  local end_epoch = os.time({
+    year = t.year,
+    month = t.month,
+    day = t.day + 1,
+    hour = 0,
+    min = 0,
+    sec = 0,
+    isdst = nil,
   })
+
+  return {
+    year = t.year,
+    month = t.month,
+    day = t.day,
+    start_epoch = start_epoch,
+    end_epoch = end_epoch,
+  }
+end
+
+local function ts_is_in_local_day(start_ts, day)
+  local start_epoch = parse_tw_timestamp(start_ts)
+  return start_epoch and start_epoch >= day.start_epoch and start_epoch < day.end_epoch
 end
 
 local function read_file_lines(path)
@@ -242,30 +285,75 @@ local function parse_today_buffer_line(line, day)
 end
 
 local function today_info()
-  local t = os.date("*t")
-  return {
-    year = t.year,
-    month = t.month,
-    day = t.day,
-    ymd = os.date("%Y%m%d"),
-  }
+  return local_day_window(os.time())
+end
+
+local function sort_rendered_lines(lines)
+  table.sort(lines, function(a, b)
+    local pa, pb = parse_data_line(a), parse_data_line(b)
+    if pa and pb then
+      return pa.start_ts < pb.start_ts
+    end
+    return a < b
+  end)
+end
+
+local function collect_today_entries(today, source_by_file)
+  local entries = {}
+  local sources = {}
+
+  if source_by_file then
+    for file, lines in pairs(source_by_file) do
+      sources[file] = lines
+      for i, line in ipairs(lines) do
+        local item = parse_data_line(line)
+        if item then
+          if ts_is_in_local_day(item.start_ts, today) then
+            table.insert(entries, {
+              file = file,
+              line_idx = i,
+              item = item,
+            })
+          end
+        end
+      end
+    end
+  else
+    for _, file in ipairs(list_data_files()) do
+      local lines = read_file_lines(file)
+      sources[file] = lines
+      for i, line in ipairs(lines) do
+        local item = parse_data_line(line)
+        if item then
+          if ts_is_in_local_day(item.start_ts, today) then
+            table.insert(entries, {
+              file = file,
+              line_idx = i,
+              item = item,
+            })
+          end
+        end
+      end
+    end
+  end
+
+  table.sort(entries, function(a, b)
+    if a.item.start_ts == b.item.start_ts then
+      if a.file == b.file then
+        return a.line_idx < b.line_idx
+      end
+      return a.file < b.file
+    end
+    return a.item.start_ts < b.item.start_ts
+  end)
+
+  return entries, sources
 end
 
 function M.open_today_view()
   ensure_data_dir()
   local today = today_info()
-  local file = month_file_for_time(os.time())
-  local lines = read_file_lines(file)
-
-  local today_entries = {}
-  local today_line_indices = {}
-  for i, line in ipairs(lines) do
-    local item = parse_data_line(line)
-    if item and item.start_ts:sub(1, 8) == today.ymd then
-      table.insert(today_entries, item)
-      table.insert(today_line_indices, i)
-    end
-  end
+  local today_entries, source_by_file = collect_today_entries(today)
 
   local buf = vim.api.nvim_create_buf(true, false)
   vim.bo[buf].buftype = "acwrite"
@@ -282,28 +370,27 @@ function M.open_today_view()
   }
 
   local body = {}
-  for _, item in ipairs(today_entries) do
-    local s = parse_tw_timestamp(item.start_ts)
-    local e = item.end_ts and parse_tw_timestamp(item.end_ts) or nil
+  for _, entry in ipairs(today_entries) do
+    local s = parse_tw_timestamp(entry.item.start_ts)
+    local e = entry.item.end_ts and parse_tw_timestamp(entry.item.end_ts) or nil
     local left = os.date("%H:%M", s)
     local right = e and os.date("%H:%M", e) or ""
     local range = right ~= "" and (left .. "-" .. right) or (left .. "-")
-    local tags = table.concat(item.tags, " ")
+    local tags = table.concat(entry.item.tags, " ")
     table.insert(body, trim(range .. " " .. tags))
   end
 
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.list_extend(header, body))
   vim.api.nvim_set_current_buf(buf)
 
-  vim.b[buf].timewarrior_today_file = file
-  vim.b[buf].timewarrior_source_lines = lines
-  vim.b[buf].timewarrior_today_indices = today_line_indices
+  vim.b[buf].timewarrior_today_source_by_file = source_by_file
+  vim.b[buf].timewarrior_today_entries = today_entries
 
   vim.api.nvim_create_autocmd("BufWriteCmd", {
     buffer = buf,
     callback = function()
-      local src_lines = vim.b[buf].timewarrior_source_lines
-      local indices = vim.b[buf].timewarrior_today_indices
+      local today_entries = vim.b[buf].timewarrior_today_entries or {}
+      local source_by_file = vim.b[buf].timewarrior_today_source_by_file or {}
       local raw = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
 
       local rewritten = {}
@@ -323,32 +410,45 @@ function M.open_today_view()
         table.insert(new_items, item)
       end
 
-      local keep = {}
-      local remove = {}
-      for _, idx in ipairs(indices) do
-        remove[idx] = true
+      local remove_by_file = {}
+      for _, entry in ipairs(today_entries) do
+        remove_by_file[entry.file] = remove_by_file[entry.file] or {}
+        remove_by_file[entry.file][entry.line_idx] = true
       end
 
-      for i, l in ipairs(src_lines) do
-        if not remove[i] then
-          table.insert(keep, l)
+      local updated_by_file = {}
+      for file, lines in pairs(source_by_file) do
+        local remove = remove_by_file[file] or {}
+        local kept = {}
+        for i, l in ipairs(lines) do
+          if not remove[i] then
+            table.insert(kept, l)
+          end
         end
+        updated_by_file[file] = kept
       end
 
       for _, item in ipairs(new_items) do
-        table.insert(keep, render_data_line(item))
+        local start_epoch = parse_tw_timestamp(item.start_ts)
+        if not start_epoch then
+          vim.notify("timewarrior: invalid start timestamp while saving", vim.log.levels.ERROR)
+          return
+        end
+        local file = month_file_for_time(start_epoch)
+        if not updated_by_file[file] then
+          updated_by_file[file] = read_file_lines(file)
+        end
+        table.insert(updated_by_file[file], render_data_line(item))
       end
 
-      table.sort(keep, function(a, b)
-        local pa, pb = parse_data_line(a), parse_data_line(b)
-        if pa and pb then
-          return pa.start_ts < pb.start_ts
-        end
-        return a < b
-      end)
+      for file, lines in pairs(updated_by_file) do
+        sort_rendered_lines(lines)
+        write_file_lines(file, lines)
+      end
 
-      write_file_lines(vim.b[buf].timewarrior_today_file, keep)
-      vim.b[buf].timewarrior_source_lines = keep
+      local refreshed_entries, refreshed_sources = collect_today_entries(today, updated_by_file)
+      vim.b[buf].timewarrior_today_entries = refreshed_entries
+      vim.b[buf].timewarrior_today_source_by_file = refreshed_sources
       vim.notify("timewarrior: wrote today view", vim.log.levels.INFO)
       vim.bo[buf].modified = false
     end,
@@ -429,5 +529,12 @@ function M.setup()
     M.open_today_view()
   end, {})
 end
+
+M._test = {
+  tw_timestamp = tw_timestamp,
+  parse_tw_timestamp = parse_tw_timestamp,
+  local_day_window = local_day_window,
+  ts_is_in_local_day = ts_is_in_local_day,
+}
 
 return M
