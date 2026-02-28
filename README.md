@@ -25,7 +25,7 @@ Use your preferred plugin manager. Example for `lazy.nvim`:
 
 ```lua
 {
-  "yourname/timewarrior.nvim",
+  "aquaherd/timewarrior.nvim",
 }
 ```
 
