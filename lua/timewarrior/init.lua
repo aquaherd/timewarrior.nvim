@@ -124,6 +124,20 @@ local function parse_data_line(line)
 
   if maybe_end == "#" then
     tags_text = tail or ""
+  elseif maybe_end == "-" then
+    local dashed_end, rest = (tail or ""):match("^(%S+)%s*(.*)$")
+    if dashed_end and dashed_end ~= "#" then
+      end_ts = dashed_end
+      local hash_idx = (rest or ""):find("#")
+      if hash_idx then
+        tags_text = (rest or ""):sub(hash_idx + 1)
+      end
+    else
+      local hash_idx = (tail or ""):find("#")
+      if hash_idx then
+        tags_text = (tail or ""):sub(hash_idx + 1)
+      end
+    end
   elseif maybe_end == "" then
     tags_text = ""
   elseif maybe_end:sub(1, 1) == "#" then
@@ -147,6 +161,7 @@ end
 local function render_data_line(item)
   local parts = { "inc", item.start_ts }
   if item.end_ts and item.end_ts ~= "" then
+    table.insert(parts, "-")
     table.insert(parts, item.end_ts)
   end
   if item.tags and #item.tags > 0 then
@@ -256,11 +271,12 @@ local function parse_today_buffer_line(line, day)
     return nil, "invalid start time: " .. s
   end
 
-  local function to_ts(hh, mm)
+  local function to_ts(hh, mm, day_offset)
+    day_offset = day_offset or 0
     return os.time({
       year = day.year,
       month = day.month,
-      day = day.day,
+      day = day.day + day_offset,
       hour = tonumber(hh),
       min = tonumber(mm),
       sec = 0,
@@ -275,6 +291,10 @@ local function parse_today_buffer_line(line, day)
       return nil, "invalid end time: " .. e
     end
     end_epoch = to_ts(eh, em)
+    -- If end time is before start time, it must be on the next day
+    if end_epoch < start_epoch then
+      end_epoch = to_ts(eh, em, 1)
+    end
   end
 
   return {
@@ -380,11 +400,23 @@ function M.open_today_view()
     table.insert(body, trim(range .. " " .. tags))
   end
 
+  local function normalized_rewritten_lines(raw_lines)
+    local rewritten = {}
+    for _, l in ipairs(raw_lines) do
+      if not l:match("^%s*#") and trim(l) ~= "" then
+        table.insert(rewritten, trim(l))
+      end
+    end
+    return rewritten
+  end
+
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.list_extend(header, body))
   vim.api.nvim_set_current_buf(buf)
 
   vim.b[buf].timewarrior_today_source_by_file = source_by_file
   vim.b[buf].timewarrior_today_entries = today_entries
+  vim.b[buf].timewarrior_today_last_saved_lines = normalized_rewritten_lines(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+  vim.bo[buf].modified = false
 
   vim.api.nvim_create_autocmd("BufWriteCmd", {
     buffer = buf,
@@ -393,11 +425,12 @@ function M.open_today_view()
       local source_by_file = vim.b[buf].timewarrior_today_source_by_file or {}
       local raw = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
 
-      local rewritten = {}
-      for _, l in ipairs(raw) do
-        if not l:match("^%s*#") and trim(l) ~= "" then
-          table.insert(rewritten, l)
-        end
+      local rewritten = normalized_rewritten_lines(raw)
+      local last_saved = vim.b[buf].timewarrior_today_last_saved_lines or {}
+      if vim.deep_equal(rewritten, last_saved) then
+        vim.notify("timewarrior: no changes to write", vim.log.levels.INFO)
+        vim.bo[buf].modified = false
+        return
       end
 
       local new_items = {}
@@ -449,6 +482,7 @@ function M.open_today_view()
       local refreshed_entries, refreshed_sources = collect_today_entries(today, updated_by_file)
       vim.b[buf].timewarrior_today_entries = refreshed_entries
       vim.b[buf].timewarrior_today_source_by_file = refreshed_sources
+      vim.b[buf].timewarrior_today_last_saved_lines = rewritten
       vim.notify("timewarrior: wrote today view", vim.log.levels.INFO)
       vim.bo[buf].modified = false
     end,
