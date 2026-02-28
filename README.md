@@ -42,6 +42,54 @@ No dependencies are required.
 
 Then write the buffer (`:write`) to persist changes.
 
+## Tag completion in today view
+
+Inside `:TimewarriorToday`, tag completion is available via omnifunc.
+
+1. Put the cursor at the end of a partial tag (for example: `09:00-10:00 cli`).
+2. Press `<C-x><C-o>` in Insert mode.
+3. Pick one of the suggested tags collected from existing Timewarrior data files.
+
+This uses Neovim's built-in omni-completion and works without extra dependencies.
+
+The buffer filetype is `timewarrior`, so you can scope completion plugins to that filetype only.
+
+### nvim-cmp
+
+```lua
+local cmp = require("cmp")
+
+cmp.setup.filetype("timewarrior", {
+  sources = cmp.config.sources({
+    { name = "omni" },
+    { name = "buffer" },
+  }),
+})
+```
+
+### blink.cmp
+
+```lua
+require("blink.cmp").setup({
+  sources = {
+    per_filetype = {
+      timewarrior = { "omni", "buffer" },
+    },
+  },
+})
+```
+
+### mini.completion
+
+```lua
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "timewarrior",
+  callback = function(ev)
+    vim.bo[ev.buf].omnifunc = "v:lua.require'timewarrior'.complete_tags"
+  end,
+})
+```
+
 ## Notes
 
 - Timestamps are written in Timewarrior UTC format: `YYYYMMDDTHHMMSSZ`.

@@ -1,6 +1,5 @@
 local M = {}
 
-
 local function split_words(s)
   local out = {}
   for w in (s or ""):gmatch("%S+") do
@@ -108,7 +107,7 @@ local function write_file_lines(path, lines)
 end
 
 local function list_data_files()
-  local files = vim.fn.globpath(data_dir(), "*.data", false, true)
+  local files = vim.fn.globpath(data_dir(), "????-??.data", false, true)
   table.sort(files)
   return files
 end
@@ -308,6 +307,50 @@ local function today_info()
   return local_day_window(os.time())
 end
 
+local function parse_virtual_today_name(name)
+  local y, m, d = (name or ""):match("^timewarrior://(%d%d%d%d)%-(%d%d)%-(%d%d)$")
+  if not y then
+    y, m, d = (name or ""):match("^timewarrior://today/(%d%d%d%d)%-(%d%d)%-(%d%d)$")
+  end
+  if not y then
+    return nil
+  end
+
+  local year = tonumber(y)
+  local month = tonumber(m)
+  local day = tonumber(d)
+  if not year or not month or not day then
+    return nil
+  end
+
+  local start_epoch = os.time({
+    year = year,
+    month = month,
+    day = day,
+    hour = 0,
+    min = 0,
+    sec = 0,
+    isdst = nil,
+  })
+  local end_epoch = os.time({
+    year = year,
+    month = month,
+    day = day + 1,
+    hour = 0,
+    min = 0,
+    sec = 0,
+    isdst = nil,
+  })
+
+  return {
+    year = year,
+    month = month,
+    day = day,
+    start_epoch = start_epoch,
+    end_epoch = end_epoch,
+  }
+end
+
 local function sort_rendered_lines(lines)
   table.sort(lines, function(a, b)
     local pa, pb = parse_data_line(a), parse_data_line(b)
@@ -370,15 +413,17 @@ local function collect_today_entries(today, source_by_file)
   return entries, sources
 end
 
-function M.open_today_view()
+function M.open_today_view(opts)
+  opts = opts or {}
   ensure_data_dir()
-  local today = today_info()
+  local today = opts.day or today_info()
   local today_entries, source_by_file = collect_today_entries(today)
 
-  local buf = vim.api.nvim_create_buf(true, false)
+  local buf = opts.buf or vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_buf_set_name(buf, string.format("timewarrior://%04d-%02d-%02d", today.year, today.month, today.day))
   vim.bo[buf].buftype = "acwrite"
   vim.bo[buf].swapfile = false
-  vim.bo[buf].filetype = "timewarrior_today"
+  vim.bo[buf].filetype = "timewarrior"
   vim.bo[buf].modifiable = true
   vim.bo[buf].omnifunc = "v:lua.require'timewarrior'.complete_tags"
 
@@ -400,93 +445,87 @@ function M.open_today_view()
     table.insert(body, trim(range .. " " .. tags))
   end
 
-  local function normalized_rewritten_lines(raw_lines)
-    local rewritten = {}
-    for _, l in ipairs(raw_lines) do
-      if not l:match("^%s*#") and trim(l) ~= "" then
-        table.insert(rewritten, trim(l))
-      end
-    end
-    return rewritten
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.list_extend(header, body))
+  if not opts.buf then
+    vim.api.nvim_set_current_buf(buf)
   end
 
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.list_extend(header, body))
-  vim.api.nvim_set_current_buf(buf)
-
-  vim.b[buf].timewarrior_today_source_by_file = source_by_file
-  vim.b[buf].timewarrior_today_entries = today_entries
-  vim.b[buf].timewarrior_today_last_saved_lines = normalized_rewritten_lines(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+  vim.b[buf].timewarrior_source_by_file = source_by_file
+  vim.b[buf].timewarrior_entries = today_entries
+  vim.b[buf].timewarrior_day = today
   vim.bo[buf].modified = false
 
-  vim.api.nvim_create_autocmd("BufWriteCmd", {
-    buffer = buf,
-    callback = function()
-      local today_entries = vim.b[buf].timewarrior_today_entries or {}
-      local source_by_file = vim.b[buf].timewarrior_today_source_by_file or {}
-      local raw = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  if not vim.b[buf].timewarrior_write_autocmd_set then
+    vim.api.nvim_create_autocmd("BufWriteCmd", {
+      buffer = buf,
+      callback = function()
+        local day = vim.b[buf].timewarrior_day or today_info()
+        local today_entries = vim.b[buf].timewarrior_entries or {}
+        local source_by_file = vim.b[buf].timewarrior_source_by_file or {}
+        local raw = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
 
-      local rewritten = normalized_rewritten_lines(raw)
-      local last_saved = vim.b[buf].timewarrior_today_last_saved_lines or {}
-      if vim.deep_equal(rewritten, last_saved) then
-        vim.notify("timewarrior: no changes to write", vim.log.levels.INFO)
-        vim.bo[buf].modified = false
-        return
-      end
-
-      local new_items = {}
-      for _, l in ipairs(rewritten) do
-        local item, err = parse_today_buffer_line(trim(l), today)
-        if not item then
-          vim.notify("timewarrior: " .. err, vim.log.levels.ERROR)
-          return
-        end
-        table.insert(new_items, item)
-      end
-
-      local remove_by_file = {}
-      for _, entry in ipairs(today_entries) do
-        remove_by_file[entry.file] = remove_by_file[entry.file] or {}
-        remove_by_file[entry.file][entry.line_idx] = true
-      end
-
-      local updated_by_file = {}
-      for file, lines in pairs(source_by_file) do
-        local remove = remove_by_file[file] or {}
-        local kept = {}
-        for i, l in ipairs(lines) do
-          if not remove[i] then
-            table.insert(kept, l)
+        local rewritten = {}
+        for _, l in ipairs(raw) do
+          if not l:match("^%s*#") and trim(l) ~= "" then
+            table.insert(rewritten, trim(l))
           end
         end
-        updated_by_file[file] = kept
-      end
 
-      for _, item in ipairs(new_items) do
-        local start_epoch = parse_tw_timestamp(item.start_ts)
-        if not start_epoch then
-          vim.notify("timewarrior: invalid start timestamp while saving", vim.log.levels.ERROR)
-          return
+        local new_items = {}
+        for _, l in ipairs(rewritten) do
+          local item, err = parse_today_buffer_line(trim(l), day)
+          if not item then
+            vim.notify("timewarrior: " .. err, vim.log.levels.ERROR)
+            return
+          end
+          table.insert(new_items, item)
         end
-        local file = month_file_for_time(start_epoch)
-        if not updated_by_file[file] then
-          updated_by_file[file] = read_file_lines(file)
+
+        local remove_by_file = {}
+        for _, entry in ipairs(today_entries) do
+          remove_by_file[entry.file] = remove_by_file[entry.file] or {}
+          remove_by_file[entry.file][entry.line_idx] = true
         end
-        table.insert(updated_by_file[file], render_data_line(item))
-      end
 
-      for file, lines in pairs(updated_by_file) do
-        sort_rendered_lines(lines)
-        write_file_lines(file, lines)
-      end
+        local updated_by_file = {}
+        for file, lines in pairs(source_by_file) do
+          local remove = remove_by_file[file] or {}
+          local kept = {}
+          for i, l in ipairs(lines) do
+            if not remove[i] then
+              table.insert(kept, l)
+            end
+          end
+          updated_by_file[file] = kept
+        end
 
-      local refreshed_entries, refreshed_sources = collect_today_entries(today, updated_by_file)
-      vim.b[buf].timewarrior_today_entries = refreshed_entries
-      vim.b[buf].timewarrior_today_source_by_file = refreshed_sources
-      vim.b[buf].timewarrior_today_last_saved_lines = rewritten
-      vim.notify("timewarrior: wrote today view", vim.log.levels.INFO)
-      vim.bo[buf].modified = false
-    end,
-  })
+        for _, item in ipairs(new_items) do
+          local start_epoch = parse_tw_timestamp(item.start_ts)
+          if not start_epoch then
+            vim.notify("timewarrior: invalid start timestamp while saving", vim.log.levels.ERROR)
+            return
+          end
+          local file = month_file_for_time(start_epoch)
+          if not updated_by_file[file] then
+            updated_by_file[file] = read_file_lines(file)
+          end
+          table.insert(updated_by_file[file], render_data_line(item))
+        end
+
+        for file, lines in pairs(updated_by_file) do
+          sort_rendered_lines(lines)
+          write_file_lines(file, lines)
+        end
+
+        local refreshed_entries, refreshed_sources = collect_today_entries(day, updated_by_file)
+        vim.b[buf].timewarrior_entries = refreshed_entries
+        vim.b[buf].timewarrior_source_by_file = refreshed_sources
+        vim.notify("timewarrior: wrote today view", vim.log.levels.INFO)
+        vim.bo[buf].modified = false
+      end,
+    })
+    vim.b[buf].timewarrior_write_autocmd_set = true
+  end
 end
 
 function M.complete_tags(findstart, base)
@@ -547,6 +586,15 @@ function M.start_prompt_picker()
 end
 
 function M.setup()
+  vim.api.nvim_create_autocmd("BufReadCmd", {
+    pattern = "timewarrior://*",
+    callback = function(args)
+      local name = vim.api.nvim_buf_get_name(args.buf)
+      local day = parse_virtual_today_name(name) or today_info()
+      M.open_today_view({ buf = args.buf, day = day })
+    end,
+  })
+
   vim.api.nvim_create_user_command("TimewarriorStart", function(opts)
     M.start(opts.fargs)
   end, { nargs = "*" })
