@@ -1,5 +1,7 @@
 # timewarrior.nvim
 
+**Track time without leaving Neovim.**
+
 A Neovim plugin for [Timewarrior](https://timewarrior.net/) that delegates all data operations to the `timew` CLI.
 
 ## Features
