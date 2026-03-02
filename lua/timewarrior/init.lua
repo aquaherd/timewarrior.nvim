@@ -12,24 +12,40 @@ local function trim(s)
   return (s:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
-local function tw_home()
-  local home = os.getenv("TIMEWARRIORDB")
-  if home and home ~= "" then
-    return home
+-- Run timew with args (list). Captures stdout+stderr.
+-- Returns { out = string, ok = bool }.
+local function timew_run(args)
+  local parts = { "timew" }
+  for _, a in ipairs(args) do
+    table.insert(parts, vim.fn.shellescape(a))
   end
-  return (os.getenv("HOME") or "") .. "/.timewarrior"
+  local out = vim.fn.system(table.concat(parts, " ") .. " 2>&1")
+  return { out = trim(out), ok = vim.v.shell_error == 0 }
 end
 
-local function data_dir()
-  return tw_home() .. "/data"
-end
-
-local function ensure_data_dir()
-  vim.fn.mkdir(data_dir(), "p")
-end
-
-local function month_file_for_time(epoch)
-  return string.format("%s/%s.data", data_dir(), os.date("!%Y-%m", epoch))
+-- Run `timew export [filter_args]`, return list of interval tables.
+-- Each interval: { id, start_ts, end_ts?, tags[] }
+local function timew_export(filter_args)
+  local args = { "export" }
+  vim.list_extend(args, filter_args or {})
+  local result = timew_run(args)
+  if not result.ok then
+    return {}
+  end
+  local ok, data = pcall(vim.json.decode, result.out)
+  if not ok or type(data) ~= "table" then
+    return {}
+  end
+  local intervals = {}
+  for _, item in ipairs(data) do
+    table.insert(intervals, {
+      id = item.id,
+      start_ts = item.start,
+      end_ts = item["end"],
+      tags = item.tags or {},
+    })
+  end
+  return intervals
 end
 
 local function tw_timestamp(epoch)
@@ -95,94 +111,15 @@ local function ts_is_in_local_day(start_ts, day)
   return start_epoch and start_epoch >= day.start_epoch and start_epoch < day.end_epoch
 end
 
-local function read_file_lines(path)
-  if vim.fn.filereadable(path) == 0 then
-    return {}
-  end
-  return vim.fn.readfile(path)
-end
-
-local function write_file_lines(path, lines)
-  vim.fn.writefile(lines, path)
-end
-
-local function list_data_files()
-  local files = vim.fn.globpath(data_dir(), "????-??.data", false, true)
-  table.sort(files)
-  return files
-end
-
-local function parse_data_line(line)
-  local start_ts, maybe_end, tail = line:match("^inc%s+(%S+)%s*(%S*)%s*(.*)$")
-  if not start_ts then
-    return nil
-  end
-
-  local tags_text = ""
-  local end_ts = nil
-
-  if maybe_end == "#" then
-    tags_text = tail or ""
-  elseif maybe_end == "-" then
-    local dashed_end, rest = (tail or ""):match("^(%S+)%s*(.*)$")
-    if dashed_end and dashed_end ~= "#" then
-      end_ts = dashed_end
-      local hash_idx = (rest or ""):find("#")
-      if hash_idx then
-        tags_text = (rest or ""):sub(hash_idx + 1)
-      end
-    else
-      local hash_idx = (tail or ""):find("#")
-      if hash_idx then
-        tags_text = (tail or ""):sub(hash_idx + 1)
-      end
-    end
-  elseif maybe_end == "" then
-    tags_text = ""
-  elseif maybe_end:sub(1, 1) == "#" then
-    tags_text = (maybe_end:sub(2) .. " " .. (tail or ""))
-  else
-    end_ts = maybe_end
-    local hash_idx = (tail or ""):find("#")
-    if hash_idx then
-      tags_text = (tail or ""):sub(hash_idx + 1)
-    end
-  end
-
-  local tags = split_words(trim(tags_text))
-  return {
-    start_ts = start_ts,
-    end_ts = end_ts,
-    tags = tags,
-  }
-end
-
-local function render_data_line(item)
-  local parts = { "inc", item.start_ts }
-  if item.end_ts and item.end_ts ~= "" then
-    table.insert(parts, "-")
-    table.insert(parts, item.end_ts)
-  end
-  if item.tags and #item.tags > 0 then
-    table.insert(parts, "#")
-    vim.list_extend(parts, item.tags)
-  end
-  return table.concat(parts, " ")
-end
-
 local function collect_tags()
+  local intervals = timew_export({})
   local seen = {}
   local tags = {}
-  for _, file in ipairs(list_data_files()) do
-    for _, line in ipairs(read_file_lines(file)) do
-      local item = parse_data_line(line)
-      if item then
-        for _, tag in ipairs(item.tags) do
-          if not seen[tag] then
-            seen[tag] = true
-            table.insert(tags, tag)
-          end
-        end
+  for _, interval in ipairs(intervals) do
+    for _, tag in ipairs(interval.tags) do
+      if not seen[tag] then
+        seen[tag] = true
+        table.insert(tags, tag)
       end
     end
   end
@@ -190,65 +127,45 @@ local function collect_tags()
   return tags
 end
 
-local function find_last_open_interval()
-  local files = list_data_files()
-  for i = #files, 1, -1 do
-    local file = files[i]
-    local lines = read_file_lines(file)
-    for j = #lines, 1, -1 do
-      local item = parse_data_line(lines[j])
-      if item and not item.end_ts then
-        return {
-          file = file,
-          line_idx = j,
-          line = lines[j],
-          item = item,
-          lines = lines,
-        }
-      end
-    end
-  end
-  return nil
-end
+local _activity_cache = { value = "", expires = 0 }
 
 function M.start(tags)
-  ensure_data_dir()
   tags = tags or {}
-  local now = os.time()
-  local file = month_file_for_time(now)
-  local lines = read_file_lines(file)
-  table.insert(lines, render_data_line({
-    start_ts = tw_timestamp(now),
-    tags = tags,
-  }))
-  write_file_lines(file, lines)
-  vim.notify("timewarrior: started interval", vim.log.levels.INFO)
+  local args = { "start" }
+  vim.list_extend(args, tags)
+  local result = timew_run(args)
+  if result.ok then
+    local label = #tags > 0 and (" " .. table.concat(tags, " ")) or ""
+    vim.notify("timewarrior: started" .. label, vim.log.levels.INFO)
+  else
+    vim.notify("timewarrior: " .. result.out, vim.log.levels.ERROR)
+  end
+  _activity_cache.expires = 0
 end
 
 function M.stop()
-  local open = find_last_open_interval()
-  if not open then
-    vim.notify("timewarrior: no open interval found", vim.log.levels.WARN)
-    return
+  local result = timew_run({ "stop" })
+  if result.ok then
+    vim.notify("timewarrior: stopped", vim.log.levels.INFO)
+  else
+    vim.notify("timewarrior: " .. result.out, vim.log.levels.ERROR)
   end
-  open.item.end_ts = tw_timestamp(os.time())
-  open.lines[open.line_idx] = render_data_line(open.item)
-  write_file_lines(open.file, open.lines)
-  vim.notify("timewarrior: stopped interval", vim.log.levels.INFO)
+  _activity_cache.expires = 0
 end
 
 function M.current_activity()
-  local open = find_last_open_interval()
-  if not open then
-    return ""
+  local now = os.time()
+  if now < _activity_cache.expires then
+    return _activity_cache.value
   end
-
-  local tags = open.item.tags or {}
-  if #tags == 0 then
-    return "active"
+  local intervals = timew_export({ ":active" })
+  local result = ""
+  if intervals and #intervals > 0 then
+    local tags = intervals[1].tags or {}
+    result = #tags > 0 and table.concat(tags, " ") or "active"
   end
-
-  return table.concat(tags, " ")
+  _activity_cache = { value = result, expires = now + 5 }
+  return result
 end
 
 local function parse_today_buffer_line(line, day)
@@ -351,73 +268,31 @@ local function parse_virtual_today_name(name)
   }
 end
 
-local function sort_rendered_lines(lines)
-  table.sort(lines, function(a, b)
-    local pa, pb = parse_data_line(a), parse_data_line(b)
-    if pa and pb then
-      return pa.start_ts < pb.start_ts
-    end
-    return a < b
+local function collect_today_entries(today)
+  local from = string.format("%04d-%02d-%02d", today.year, today.month, today.day)
+  local t_next = os.date("*t", today.end_epoch)
+  local to = string.format("%04d-%02d-%02d", t_next.year, t_next.month, t_next.day)
+  local intervals = timew_export({ "from", from, "to", to })
+  table.sort(intervals, function(a, b)
+    return a.start_ts < b.start_ts
   end)
+  return intervals
 end
 
-local function collect_today_entries(today, source_by_file)
-  local entries = {}
-  local sources = {}
-
-  if source_by_file then
-    for file, lines in pairs(source_by_file) do
-      sources[file] = lines
-      for i, line in ipairs(lines) do
-        local item = parse_data_line(line)
-        if item then
-          if ts_is_in_local_day(item.start_ts, today) then
-            table.insert(entries, {
-              file = file,
-              line_idx = i,
-              item = item,
-            })
-          end
-        end
-      end
-    end
-  else
-    for _, file in ipairs(list_data_files()) do
-      local lines = read_file_lines(file)
-      sources[file] = lines
-      for i, line in ipairs(lines) do
-        local item = parse_data_line(line)
-        if item then
-          if ts_is_in_local_day(item.start_ts, today) then
-            table.insert(entries, {
-              file = file,
-              line_idx = i,
-              item = item,
-            })
-          end
-        end
-      end
-    end
+local function items_equal(a, b)
+  if a.start_ts ~= b.start_ts then return false end
+  if (a.end_ts or "") ~= (b.end_ts or "") then return false end
+  if #a.tags ~= #b.tags then return false end
+  for i, tag in ipairs(a.tags) do
+    if b.tags[i] ~= tag then return false end
   end
-
-  table.sort(entries, function(a, b)
-    if a.item.start_ts == b.item.start_ts then
-      if a.file == b.file then
-        return a.line_idx < b.line_idx
-      end
-      return a.file < b.file
-    end
-    return a.item.start_ts < b.item.start_ts
-  end)
-
-  return entries, sources
+  return true
 end
 
 function M.open_today_view(opts)
   opts = opts or {}
-  ensure_data_dir()
   local today = opts.day or today_info()
-  local today_entries, source_by_file = collect_today_entries(today)
+  local today_entries = collect_today_entries(today)
 
   local buf = opts.buf or vim.api.nvim_create_buf(true, false)
   vim.api.nvim_buf_set_name(buf, string.format("timewarrior://%04d-%02d-%02d", today.year, today.month, today.day))
@@ -436,12 +311,12 @@ function M.open_today_view(opts)
 
   local body = {}
   for _, entry in ipairs(today_entries) do
-    local s = parse_tw_timestamp(entry.item.start_ts)
-    local e = entry.item.end_ts and parse_tw_timestamp(entry.item.end_ts) or nil
+    local s = parse_tw_timestamp(entry.start_ts)
+    local e = entry.end_ts and parse_tw_timestamp(entry.end_ts) or nil
     local left = os.date("%H:%M", s)
     local right = e and os.date("%H:%M", e) or ""
     local range = right ~= "" and (left .. "-" .. right) or (left .. "-")
-    local tags = table.concat(entry.item.tags, " ")
+    local tags = table.concat(entry.tags, " ")
     table.insert(body, trim(range .. " " .. tags))
   end
 
@@ -450,7 +325,6 @@ function M.open_today_view(opts)
     vim.api.nvim_set_current_buf(buf)
   end
 
-  vim.b[buf].timewarrior_source_by_file = source_by_file
   vim.b[buf].timewarrior_entries = today_entries
   vim.b[buf].timewarrior_day = today
   vim.bo[buf].modified = false
@@ -460,8 +334,7 @@ function M.open_today_view(opts)
       buffer = buf,
       callback = function()
         local day = vim.b[buf].timewarrior_day or today_info()
-        local today_entries = vim.b[buf].timewarrior_entries or {}
-        local source_by_file = vim.b[buf].timewarrior_source_by_file or {}
+        local orig_entries = vim.b[buf].timewarrior_entries or {}
         local raw = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
 
         local rewritten = {}
@@ -481,46 +354,82 @@ function M.open_today_view(opts)
           table.insert(new_items, item)
         end
 
-        local remove_by_file = {}
-        for _, entry in ipairs(today_entries) do
-          remove_by_file[entry.file] = remove_by_file[entry.file] or {}
-          remove_by_file[entry.file][entry.line_idx] = true
+        -- Reject buffers with more than one open interval
+        local open_count = 0
+        for _, item in ipairs(new_items) do
+          if not item.end_ts then
+            open_count = open_count + 1
+          end
+        end
+        if open_count > 1 then
+          vim.notify("timewarrior: only one open interval allowed", vim.log.levels.ERROR)
+          return
         end
 
-        local updated_by_file = {}
-        for file, lines in pairs(source_by_file) do
-          local remove = remove_by_file[file] or {}
-          local kept = {}
-          for i, l in ipairs(lines) do
-            if not remove[i] then
-              table.insert(kept, l)
+        -- Diff: find entries removed and items added since last save
+        local to_delete = {}
+        for _, entry in ipairs(orig_entries) do
+          local found = false
+          for _, item in ipairs(new_items) do
+            if items_equal(entry, item) then
+              found = true
+              break
             end
           end
-          updated_by_file[file] = kept
+          if not found then
+            table.insert(to_delete, entry)
+          end
         end
 
+        local to_add = {}
         for _, item in ipairs(new_items) do
-          local start_epoch = parse_tw_timestamp(item.start_ts)
-          if not start_epoch then
-            vim.notify("timewarrior: invalid start timestamp while saving", vim.log.levels.ERROR)
+          local found = false
+          for _, entry in ipairs(orig_entries) do
+            if items_equal(entry, item) then
+              found = true
+              break
+            end
+          end
+          if not found then
+            table.insert(to_add, item)
+          end
+        end
+
+        -- Delete removed/modified entries first (overlap would block re-add otherwise)
+        for _, entry in ipairs(to_delete) do
+          local res = timew_run({ "delete", "@" .. entry.id, ":yes" })
+          if not res.ok then
+            vim.notify("timewarrior: failed to delete @" .. entry.id .. ": " .. res.out, vim.log.levels.ERROR)
             return
           end
-          local file = month_file_for_time(start_epoch)
-          if not updated_by_file[file] then
-            updated_by_file[file] = read_file_lines(file)
+        end
+
+        -- Add new/modified entries; open intervals last to avoid conflicts
+        table.sort(to_add, function(a, b)
+          if not a.end_ts and b.end_ts then return false end
+          if a.end_ts and not b.end_ts then return true end
+          return (a.start_ts or "") < (b.start_ts or "")
+        end)
+
+        for _, item in ipairs(to_add) do
+          local args
+          if item.end_ts then
+            args = { "track", item.start_ts, "-", item.end_ts }
+          else
+            args = { "start", item.start_ts }
           end
-          table.insert(updated_by_file[file], render_data_line(item))
+          vim.list_extend(args, item.tags)
+          local res = timew_run(args)
+          if not res.ok then
+            vim.notify("timewarrior: " .. res.out, vim.log.levels.ERROR)
+            return
+          end
         end
 
-        for file, lines in pairs(updated_by_file) do
-          sort_rendered_lines(lines)
-          write_file_lines(file, lines)
-        end
-
-        local refreshed_entries, refreshed_sources = collect_today_entries(day, updated_by_file)
-        vim.b[buf].timewarrior_entries = refreshed_entries
-        vim.b[buf].timewarrior_source_by_file = refreshed_sources
-        vim.notify("timewarrior: wrote today view", vim.log.levels.INFO)
+        local refreshed = collect_today_entries(day)
+        vim.b[buf].timewarrior_entries = refreshed
+        _activity_cache.expires = 0
+        vim.notify("timewarrior: saved", vim.log.levels.INFO)
         vim.bo[buf].modified = false
       end,
     })
@@ -586,6 +495,11 @@ function M.start_prompt_picker()
 end
 
 function M.setup()
+  if vim.fn.executable("timew") == 0 then
+    vim.notify("timewarrior.nvim: 'timew' not found in PATH", vim.log.levels.ERROR)
+    return
+  end
+
   vim.api.nvim_create_autocmd("BufReadCmd", {
     pattern = "timewarrior://*",
     callback = function(args)

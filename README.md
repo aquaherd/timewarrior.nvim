@@ -1,6 +1,6 @@
 # timewarrior.nvim
 
-A pure-Lua Neovim plugin that manipulates Timewarrior data files directly without calling the `timew` binary.
+A Neovim plugin for [Timewarrior](https://timewarrior.net/) that delegates all data operations to the `timew` CLI.
 
 ## Features
 
@@ -9,15 +9,13 @@ A pure-Lua Neovim plugin that manipulates Timewarrior data files directly withou
 - `:TimewarriorStop` to stop the latest open interval.
 - `:TimewarriorToday` to open an editable *today* view.
 - Tag autocomplete in the today view via omnifunc (`<C-x><C-o>`).
-- Writes updates back to Timewarrior `.data` files.
+- All mutations go through `timew` — no direct data file access.
 - `require("timewarrior").current_activity()` for status bar integration.
 
-## Data source
+## Requirements
 
-The plugin reads/writes:
-
-- `$TIMEWARRIORDB/data/*.data` when `TIMEWARRIORDB` is set.
-- `~/.timewarrior/data/*.data` otherwise.
+- Neovim 0.7+
+- [`timew`](https://timewarrior.net/) binary in `PATH`
 
 ## Install
 
@@ -28,8 +26,6 @@ Use your preferred plugin manager. Example for `lazy.nvim`:
   "aquaherd/timewarrior.nvim",
 }
 ```
-
-No dependencies are required.
 
 ## Today buffer format
 
