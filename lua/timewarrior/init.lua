@@ -158,13 +158,22 @@ function M.current_activity()
   if now < _activity_cache.expires then
     return _activity_cache.value
   end
+
   local intervals = timew_export({ ":active" })
-  local result = ""
-  if intervals and #intervals > 0 then
-    local tags = intervals[1].tags or {}
-    result = #tags > 0 and table.concat(tags, " ") or "active"
+  local result
+  if not intervals or #intervals == 0 then
+    result = "No activity"
+  else
+    local interval = intervals[1]
+    local start_epoch = interval.start_ts and parse_tw_timestamp(interval.start_ts)
+    local start_str = start_epoch and os.date("%H:%M", start_epoch) or "?"
+    local tags = interval.tags or {}
+    local label = #tags > 0 and table.concat(tags, " ") or "active"
+    result = " " .. start_str .. " " .. label
   end
-  _activity_cache = { value = result, expires = now + 5 }
+
+  _activity_cache.value = result
+  _activity_cache.expires = now + 30
   return result
 end
 

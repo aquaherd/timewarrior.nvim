@@ -14,11 +14,6 @@ A Neovim plugin for [Timewarrior](https://timewarrior.net/) that delegates all d
 - All mutations go through `timew` — no direct data file access.
 - `require("timewarrior").current_activity()` for status bar integration.
 
-## Requirements
-
-- Neovim 0.7+
-- [`timew`](https://timewarrior.net/) binary in `PATH`
-
 ## Install
 
 Use your preferred plugin manager. Example for `lazy.nvim`:
@@ -28,6 +23,8 @@ Use your preferred plugin manager. Example for `lazy.nvim`:
   "aquaherd/timewarrior.nvim",
 }
 ```
+
+No dependencies are required.
 
 ## Today buffer format
 
@@ -53,9 +50,6 @@ This uses Neovim's built-in omni-completion and works without extra dependencies
 The buffer filetype is `timewarrior`, so you can scope completion plugins to that filetype only.
 
 ### nvim-cmp
-
-> **Note:** The `omni` source requires the [`hrsh7th/cmp-omni`](https://github.com/hrsh7th/cmp-omni) plugin.
-> Add it as a dependency of `nvim-cmp` so that tag completion pulls from Timewarrior history rather than only the current buffer.
 
 ```lua
 local cmp = require("cmp")
@@ -115,21 +109,16 @@ The script runs the checks with `nvim --headless` for:
 
 ## Lualine example
 
-You can surface the currently running activity in lualine:
+You can surface the currently running activity in lualine.
+
+`current_activity()` returns a string like `" 09:00 projectA clientX"` when tracking, or `"No activity"` when idle. Results are cached for 30 seconds; starting or stopping an interval invalidates the cache immediately.
+
+The plugin ships a lualine component, so you can reference it by name:
 
 ```lua
 require("lualine").setup({
   sections = {
-    lualine_c = {
-      {
-        function()
-          return require("timewarrior").current_activity()
-        end,
-        cond = function()
-          return require("timewarrior").current_activity() ~= ""
-        end,
-      },
-    },
+    lualine_x = { "timewarrior" },
   },
 })
 ```
