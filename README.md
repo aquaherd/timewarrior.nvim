@@ -54,6 +54,9 @@ The buffer filetype is `timewarrior`, so you can scope completion plugins to tha
 
 ### nvim-cmp
 
+> **Note:** The `omni` source requires the [`hrsh7th/cmp-omni`](https://github.com/hrsh7th/cmp-omni) plugin.
+> Add it as a dependency of `nvim-cmp` so that tag completion pulls from Timewarrior history rather than only the current buffer.
+
 ```lua
 local cmp = require("cmp")
 
