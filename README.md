@@ -1,6 +1,8 @@
 # timewarrior.nvim
 
-A pure-Lua Neovim plugin that manipulates Timewarrior data files directly without calling the `timew` binary.
+**Track time without leaving Neovim.**
+
+A Neovim plugin for [Timewarrior](https://timewarrior.net/) that delegates all data operations to the `timew` CLI.
 
 ## Features
 
@@ -9,15 +11,13 @@ A pure-Lua Neovim plugin that manipulates Timewarrior data files directly withou
 - `:TimewarriorStop` to stop the latest open interval.
 - `:TimewarriorToday` to open an editable *today* view.
 - Tag autocomplete in the today view via omnifunc (`<C-x><C-o>`).
-- Writes updates back to Timewarrior `.data` files.
+- All mutations go through `timew` — no direct data file access.
 - `require("timewarrior").current_activity()` for status bar integration.
 
-## Data source
+## Requirements
 
-The plugin reads/writes:
-
-- `$TIMEWARRIORDB/data/*.data` when `TIMEWARRIORDB` is set.
-- `~/.timewarrior/data/*.data` otherwise.
+- Neovim 0.7+
+- [`timew`](https://timewarrior.net/) binary in `PATH`
 
 ## Install
 
@@ -28,8 +28,6 @@ Use your preferred plugin manager. Example for `lazy.nvim`:
   "aquaherd/timewarrior.nvim",
 }
 ```
-
-No dependencies are required.
 
 ## Today buffer format
 
@@ -55,6 +53,9 @@ This uses Neovim's built-in omni-completion and works without extra dependencies
 The buffer filetype is `timewarrior`, so you can scope completion plugins to that filetype only.
 
 ### nvim-cmp
+
+> **Note:** The `omni` source requires the [`hrsh7th/cmp-omni`](https://github.com/hrsh7th/cmp-omni) plugin.
+> Add it as a dependency of `nvim-cmp` so that tag completion pulls from Timewarrior history rather than only the current buffer.
 
 ```lua
 local cmp = require("cmp")
