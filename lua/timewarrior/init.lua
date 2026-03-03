@@ -30,11 +30,11 @@ local function timew_export(filter_args)
   vim.list_extend(args, filter_args or {})
   local result = timew_run(args)
   if not result.ok then
-    return {}
+    return nil
   end
   local ok, data = pcall(vim.json.decode, result.out)
   if not ok or type(data) ~= "table" then
-    return {}
+    return nil
   end
   local intervals = {}
   for _, item in ipairs(data) do
@@ -112,7 +112,7 @@ local function ts_is_in_local_day(start_ts, day)
 end
 
 local function collect_tags()
-  local intervals = timew_export({})
+  local intervals = timew_export({}) or {}
   local seen = {}
   local tags = {}
   for _, interval in ipairs(intervals) do
@@ -159,12 +159,23 @@ function M.current_activity()
     return _activity_cache.value
   end
 
-  local intervals = timew_export({ ":active" })
+  local intervals = timew_export({ "@1" })
+  if intervals == nil then
+    -- command failed; return stale value or placeholder without caching
+    return _activity_cache.value ~= "" and _activity_cache.value or "No activity"
+  end
+  -- timew export @1 may return all intervals on some versions; find the open one
+  local interval
+  for _, iv in ipairs(intervals) do
+    if not iv.end_ts then
+      interval = iv
+      break
+    end
+  end
   local result
-  if not intervals or #intervals == 0 then
+  if not interval then
     result = "No activity"
   else
-    local interval = intervals[1]
     local start_epoch = interval.start_ts and parse_tw_timestamp(interval.start_ts)
     local start_str = start_epoch and os.date("%H:%M", start_epoch) or "?"
     local tags = interval.tags or {}
@@ -281,7 +292,7 @@ local function collect_today_entries(today)
   local from = string.format("%04d-%02d-%02d", today.year, today.month, today.day)
   local t_next = os.date("*t", today.end_epoch)
   local to = string.format("%04d-%02d-%02d", t_next.year, t_next.month, t_next.day)
-  local intervals = timew_export({ "from", from, "to", to })
+  local intervals = timew_export({ "from", from, "to", to }) or {}
   table.sort(intervals, function(a, b)
     return a.start_ts < b.start_ts
   end)
