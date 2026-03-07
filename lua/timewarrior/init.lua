@@ -1,5 +1,7 @@
 local M = {}
 
+local hl = require("timewarrior.highlight")
+
 local function split_words(s)
   local out = {}
   for w in (s or ""):gmatch("%S+") do
@@ -313,6 +315,7 @@ function M.open_today_view(opts)
   opts = opts or {}
   local today = opts.day or today_info()
   local today_entries = collect_today_entries(today)
+  local known_tags = collect_tags()
 
   local buf = opts.buf or vim.api.nvim_create_buf(true, false)
   vim.api.nvim_buf_set_name(buf, string.format("timewarrior://%04d-%02d-%02d", today.year, today.month, today.day))
@@ -348,6 +351,20 @@ function M.open_today_view(opts)
   vim.b[buf].timewarrior_entries = today_entries
   vim.b[buf].timewarrior_day = today
   vim.bo[buf].modified = false
+
+  -- Apply initial highlighting.
+  hl.update(buf, known_tags)
+
+  -- Re-validate and re-highlight on every text change for instant feedback.
+  if not vim.b[buf].timewarrior_hl_autocmd_set then
+    vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+      buffer = buf,
+      callback = function()
+        hl.update(buf, known_tags)
+      end,
+    })
+    vim.b[buf].timewarrior_hl_autocmd_set = true
+  end
 
   if not vim.b[buf].timewarrior_write_autocmd_set then
     vim.api.nvim_create_autocmd("BufWriteCmd", {
