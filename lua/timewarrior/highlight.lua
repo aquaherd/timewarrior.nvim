@@ -137,24 +137,24 @@ function M.update(bufnr, known_tags)
         end
 
         -- Tags after the time range.
+        -- Use find-in-loop so that any number of spaces/tabs between tags
+        -- maps to the correct byte column rather than assuming one separator.
         local tags_str = parsed.tags_str or ""
-        local col = parsed.time_end_col
-
-        local ws = tags_str:match("^(%s+)")
-        if ws then
-          col = col + #ws
-          tags_str = tags_str:sub(#ws + 1)
-        end
-
-        for tag in tags_str:gmatch("%S+") do
-          local tag_end = col + #tag
+        local base_col = parsed.time_end_col
+        local pos = 1
+        while pos <= #tags_str do
+          local tok_s, tok_e = tags_str:find("%S+", pos)
+          if not tok_s then break end
+          local tag = tags_str:sub(tok_s, tok_e)
+          local col     = base_col + tok_s - 1
+          local tag_end = base_col + tok_e
           if known_set[tag] then
             mark(bufnr, lnum, col, tag_end, "Keyword")
           else
             warn(diags, bufnr, lnum, col, tag_end,
               "Unknown tag '" .. tag .. "'")
           end
-          col = tag_end + 1
+          pos = tok_e + 1
         end
       end
     end
