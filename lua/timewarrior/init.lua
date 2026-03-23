@@ -178,11 +178,9 @@ function M.current_activity()
   if not interval then
     result = "No activity"
   else
-    local start_epoch = interval.start_ts and parse_tw_timestamp(interval.start_ts)
-    local start_str = start_epoch and os.date("%H:%M", start_epoch) or "?"
     local tags = interval.tags or {}
     local label = #tags > 0 and table.concat(tags, " ") or "active"
-    result = " " .. start_str .. " " .. label
+    result = label
   end
 
   _activity_cache.value = result
