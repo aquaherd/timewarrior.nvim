@@ -19,6 +19,11 @@ local M = {}
 
 local ns = vim.api.nvim_create_namespace("timewarrior")
 
+-- Highlight groups: users can override via :hi TimewarriorTime ...
+vim.api.nvim_set_hl(0, "TimewarriorComment", { default = true, link = "Comment" })
+vim.api.nvim_set_hl(0, "TimewarriorTime", { default = true, link = "Number" })
+vim.api.nvim_set_hl(0, "TimewarriorTag", { default = true, link = "Keyword" })
+
 function M.ns()
   return ns
 end
@@ -97,7 +102,7 @@ function M.update(bufnr, known_tags)
 
     if line:match("^%s*#") then
       -- Comment line → Comment colour for the whole line.
-      mark(bufnr, lnum, 0, #line, "Comment")
+      mark(bufnr, lnum, 0, #line, "TimewarriorComment")
 
     elseif not line:match("^%s*$") then
       -- Entry line.
@@ -108,7 +113,7 @@ function M.update(bufnr, known_tags)
           "Invalid format. Expected: HH:MM-HH:MM tags  or  HH:MM- tags")
       else
         -- Time-range prefix → Number colour.
-        mark(bufnr, lnum, 0, parsed.time_end_col, "Number")
+        mark(bufnr, lnum, 0, parsed.time_end_col, "TimewarriorTime")
 
         local sh_n = tonumber(parsed.sh)
         local sm_n = tonumber(parsed.sm)
@@ -149,7 +154,7 @@ function M.update(bufnr, known_tags)
           local col     = base_col + tok_s - 1
           local tag_end = base_col + tok_e
           if known_set[tag] then
-            mark(bufnr, lnum, col, tag_end, "Keyword")
+            mark(bufnr, lnum, col, tag_end, "TimewarriorTag")
           else
             warn(diags, bufnr, lnum, col, tag_end,
               "Unknown tag '" .. tag .. "'")

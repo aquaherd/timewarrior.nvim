@@ -2,6 +2,23 @@ local M = {}
 
 local hl = require("timewarrior.highlight")
 
+local config = {
+  cache_ttl = 30,
+  notify_level = vim.log.levels.INFO,
+  header = {
+    "# Timewarrior Today",
+    "# Edit lines and :write to persist",
+    "# Format: HH:MM-HH:MM tag1 tag2  (or HH:MM- for active)",
+    "",
+  },
+}
+
+local function notify(msg, level)
+  if level >= config.notify_level then
+    vim.notify(msg, level)
+  end
+end
+
 local function split_words(s)
   local out = {}
   for w in (s or ""):gmatch("%S+") do
@@ -150,7 +167,7 @@ local function collect_tags()
   end
   table.sort(tags)
   _tags_cache.value = tags
-  _tags_cache.expires = now + 30
+  _tags_cache.expires = now + config.cache_ttl
   return tags
 end
 
@@ -161,9 +178,9 @@ function M.start(tags)
   local result = timew_run(args)
   if result.ok then
     local label = #tags > 0 and (" " .. table.concat(tags, " ")) or ""
-    vim.notify("timewarrior: started" .. label, vim.log.levels.INFO)
+    notify("timewarrior: started" .. label, vim.log.levels.INFO)
   else
-    vim.notify("timewarrior: " .. result.out, vim.log.levels.ERROR)
+    notify("timewarrior: " .. result.out, vim.log.levels.ERROR)
   end
   invalidate_caches()
 end
@@ -171,9 +188,9 @@ end
 function M.stop()
   local result = timew_run({ "stop" })
   if result.ok then
-    vim.notify("timewarrior: stopped", vim.log.levels.INFO)
+    notify("timewarrior: stopped", vim.log.levels.INFO)
   else
-    vim.notify("timewarrior: " .. result.out, vim.log.levels.ERROR)
+    notify("timewarrior: " .. result.out, vim.log.levels.ERROR)
   end
   invalidate_caches()
 end
@@ -207,7 +224,7 @@ function M.current_activity()
   end
 
   _activity_cache.value = result
-  _activity_cache.expires = now + 30
+  _activity_cache.expires = now + config.cache_ttl
   return result
 end
 
@@ -356,12 +373,10 @@ function M.open_today_view(opts)
   vim.bo[buf].modifiable = true
   vim.bo[buf].omnifunc = "v:lua.require'timewarrior'.complete_tags"
 
-  local header = {
-    "# Timewarrior Today",
-    "# Edit lines and :write to persist",
-    "# Format: HH:MM-HH:MM tag1 tag2  (or HH:MM- for active)",
-    "",
-  }
+  local header = {}
+  for _, line in ipairs(config.header) do
+    table.insert(header, line)
+  end
 
   local body = {}
   for _, entry in ipairs(today_entries) do
@@ -418,7 +433,7 @@ function M.open_today_view(opts)
         for _, l in ipairs(rewritten) do
           local item, err = parse_today_buffer_line(trim(l), day)
           if not item then
-            vim.notify("timewarrior: " .. err, vim.log.levels.ERROR)
+            notify("timewarrior: " .. err, vim.log.levels.ERROR)
             return
           end
           table.insert(new_items, item)
@@ -432,16 +447,19 @@ function M.open_today_view(opts)
           end
         end
         if open_count > 1 then
-          vim.notify("timewarrior: only one open interval allowed", vim.log.levels.ERROR)
+          notify("timewarrior: only one open interval allowed", vim.log.levels.ERROR)
           return
         end
 
-        -- Diff: find entries removed and items added since last save
+        -- Diff: find entries removed and items added since last save.
+        -- Use consumed-sets so duplicate identical entries are handled correctly.
         local to_delete = {}
+        local consumed_new = {}
         for _, entry in ipairs(orig_entries) do
           local found = false
-          for _, item in ipairs(new_items) do
-            if items_equal(entry, item) then
+          for j, item in ipairs(new_items) do
+            if not consumed_new[j] and items_equal(entry, item) then
+              consumed_new[j] = true
               found = true
               break
             end
@@ -452,10 +470,12 @@ function M.open_today_view(opts)
         end
 
         local to_add = {}
+        local consumed_orig = {}
         for _, item in ipairs(new_items) do
           local found = false
-          for _, entry in ipairs(orig_entries) do
-            if items_equal(entry, item) then
+          for j, entry in ipairs(orig_entries) do
+            if not consumed_orig[j] and items_equal(entry, item) then
+              consumed_orig[j] = true
               found = true
               break
             end
@@ -471,7 +491,7 @@ function M.open_today_view(opts)
         for _, entry in ipairs(to_delete) do
           local res = timew_run({ "delete", "@" .. entry.id, ":yes" })
           if not res.ok then
-            vim.notify("timewarrior: failed to delete @" .. entry.id .. ": " .. res.out, vim.log.levels.ERROR)
+            notify("timewarrior: failed to delete @" .. entry.id .. ": " .. res.out, vim.log.levels.ERROR)
             save_ok = false
             break
           end
@@ -495,7 +515,7 @@ function M.open_today_view(opts)
             vim.list_extend(args, item.tags)
             local res = timew_run(args)
             if not res.ok then
-              vim.notify("timewarrior: " .. res.out, vim.log.levels.ERROR)
+              notify("timewarrior: " .. res.out, vim.log.levels.ERROR)
               save_ok = false
               break
             end
@@ -509,7 +529,7 @@ function M.open_today_view(opts)
         invalidate_caches()
 
         if save_ok then
-          vim.notify("timewarrior: saved", vim.log.levels.INFO)
+          notify("timewarrior: saved", vim.log.levels.INFO)
           vim.bo[buf].modified = false
         else
           vim.bo[buf].modified = true
@@ -584,7 +604,12 @@ function M.start_prompt_picker()
   pick_next()
 end
 
-function M.setup()
+function M.setup(opts)
+  opts = opts or {}
+  config.cache_ttl = opts.cache_ttl or config.cache_ttl
+  config.notify_level = opts.notify_level or config.notify_level
+  config.header = opts.header or config.header
+
   vim.api.nvim_create_autocmd("BufReadCmd", {
     pattern = "timewarrior://*",
     callback = function(args)

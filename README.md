@@ -31,6 +31,23 @@ Use your preferred plugin manager. Example for `lazy.nvim`:
 
 No dependencies are required.
 
+## Configuration
+
+```lua
+require("timewarrior").setup({
+  cache_ttl = 30,       -- seconds to cache activity/tags (default 30)
+  notify_level = vim.log.levels.INFO,  -- minimum level for notifications
+  header = {            -- lines shown at the top of the today view
+    "# Timewarrior Today",
+    "# Edit lines and :write to persist",
+    "# Format: HH:MM-HH:MM tag1 tag2  (or HH:MM- for active)",
+    "",
+  },
+})
+```
+
+All options are optional. Omitted values keep their defaults.
+
 ## Today buffer format
 
 `TimewarriorToday` opens an `acwrite` buffer with lines like:
@@ -116,7 +133,7 @@ The script runs the checks with `nvim --headless` for:
 
 You can surface the currently running activity in lualine.
 
-`current_activity()` returns a string like `" 09:00 projectA clientX"` when tracking, or `"No activity"` when idle. Results are cached for 30 seconds; starting or stopping an interval invalidates the cache immediately.
+`current_activity()` returns a string like `"projectA clientX"` when tracking, or `"No activity"` when idle. Results are cached (configurable via `cache_ttl`, default 30 s); starting or stopping an interval invalidates the cache immediately.
 
 The plugin ships a lualine component, so you can reference it by name:
 
