@@ -14,6 +14,11 @@ A Neovim plugin for [Timewarrior](https://timewarrior.net/) that delegates all d
 - All mutations go through `timew` — no direct data file access.
 - `require("timewarrior").current_activity()` for status bar integration.
 
+## Requirements
+
+- Neovim >= 0.9
+- [Timewarrior](https://timewarrior.net/) (`timew`) in your `PATH`
+
 ## Install
 
 Use your preferred plugin manager. Example for `lazy.nvim`:
