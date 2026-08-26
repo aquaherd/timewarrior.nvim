@@ -636,6 +636,7 @@ function M.setup(opts)
   end, {})
 end
 
+-- Exported for the regression test harness (scripts/timewarrior_tz_regression.lua).
 M._test = {
   tw_timestamp = tw_timestamp,
   parse_tw_timestamp = parse_tw_timestamp,

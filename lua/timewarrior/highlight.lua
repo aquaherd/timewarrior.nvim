@@ -24,10 +24,6 @@ vim.api.nvim_set_hl(0, "TimewarriorComment", { default = true, link = "Comment" 
 vim.api.nvim_set_hl(0, "TimewarriorTime", { default = true, link = "Number" })
 vim.api.nvim_set_hl(0, "TimewarriorTag", { default = true, link = "Keyword" })
 
-function M.ns()
-  return ns
-end
-
 ---Parse the time-range prefix of an entry line.
 ---@param line string
 ---@return table|nil  { sh, sm, eh, em, tags_str, time_end_col }

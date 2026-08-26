@@ -1,5 +1,9 @@
 # timewarrior.nvim
 
+[![CI](https://github.com/aquaherd/timewarrior.nvim/actions/workflows/ci.yml/badge.svg)](https://github.com/aquaherd/timewarrior.nvim/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Neovim >= 0.9](https://img.shields.io/badge/Neovim-%3E%3D%200.9-green.svg)](https://neovim.io)
+
 **Track time without leaving Neovim.**
 
 A Neovim plugin for [Timewarrior](https://timewarrior.net/) that delegates all data operations to the `timew` CLI.
@@ -111,7 +115,27 @@ vim.api.nvim_create_autocmd("FileType", {
 
 - Timestamps are written in Timewarrior UTC format: `YYYYMMDDTHHMMSSZ`.
 - `:TimewarriorToday` displays and edits times in your local timezone, then saves back as UTC.
-- The plugin currently targets `inc` intervals.
+- The today view supports both closed (`HH:MM-HH:MM`) and open (`HH:MM-`) intervals.
+
+## Health check
+
+Run `:checkhealth timewarrior` to verify `timew` is installed and report the Neovim version.
+
+## Highlight groups
+
+The plugin defines three highlight groups linked to standard groups by default:
+
+| Group | Default |
+|---|---|
+| `TimewarriorComment` | `Comment` |
+| `TimewarriorTime` | `Number` |
+| `TimewarriorTag` | `Keyword` |
+
+Override with `:highlight`:
+
+```vim
+:hi TimewarriorTag guifg=#ff9900
+```
 
 ## Timezone regression checks
 

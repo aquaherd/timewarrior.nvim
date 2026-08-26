@@ -1,0 +1,175 @@
+*timewarrior.txt*  Track time without leaving Neovim
+
+Author:   aquaherd
+Version:  0.1.0
+License:  MIT
+
+==============================================================================
+CONTENTS                                               *timewarrior-contents*
+
+  1. Introduction .............. |timewarrior-introduction|
+  2. Requirements .............. |timewarrior-requirements|
+  3. Setup ..................... |timewarrior-setup|
+  4. Commands .................. |timewarrior-commands|
+  5. Functions .................. |timewarrior-functions|
+  6. Today buffer .............. |timewarrior-today|
+  7. Tag completion ............ |timewarrior-completion|
+  8. Highlight groups .......... |timewarrior-highlights|
+  9. Health check .............. |timewarrior-health|
+ 10. Configuration ............. |timewarrior-config|
+ 11. Timezone testing .......... |timewarrior-tz|
+ 12. Lualine ................... |timewarrior-lualine|
+
+==============================================================================
+1. Introduction                                  *timewarrior-introduction*
+
+A Neovim plugin for Timewarrior (https://timewarrior.net/) that delegates
+all data operations to the `timew` CLI. No direct file access.
+
+==============================================================================
+2. Requirements                                  *timewarrior-requirements*
+
+- Neovim >= 0.9
+- `timew` (Timewarrior) in your `PATH`
+
+==============================================================================
+3. Setup                                              *timewarrior-setup*
+
+>lua
+  require("timewarrior").setup({
+    cache_ttl = 30,
+    notify_level = vim.log.levels.INFO,
+    header = {
+      "# Timewarrior Today",
+      "# Edit lines and :write to persist",
+      "# Format: HH:MM-HH:MM tag1 tag2  (or HH:MM- for active)",
+      "",
+    },
+  })
+<
+
+All options are optional. See |timewarrior-config| for details.
+
+==============================================================================
+4. Commands                                        *timewarrior-commands*
+
+:TimewarriorStart [tags...]          *:TimewarriorStart*
+  Start tracking. Any arguments are added as tags.
+
+:TimewarriorStartPicker              *:TimewarriorStartPicker*
+  Start tracking, picking tags from existing data via |vim.ui.select|.
+
+:TimewarriorStop                     *:TimewarriorStop*
+  Stop the latest open interval.
+
+:TimewarriorToday                    *:TimewarriorToday*
+  Open the today view in an |acwrite| buffer.
+
+==============================================================================
+5. Functions                                      *timewarrior-functions*
+
+require("timewarrior").start({tags})               *timewarrior-start()*
+  Start tracking with optional tags (table of strings).
+
+require("timewarrior").stop()                     *timewarrior-stop()*
+  Stop the latest open interval.
+
+require("timewarrior").current_activity()    *timewarrior-current()*
+  Returns a string like `"projectA clientX"` when tracking, or
+  `"No activity"` when idle. Cached (default 30 s).
+
+require("timewarrior").known_tags()          *timewarrior-tags()*
+  Returns a list of known tags from Timewarrior data.
+
+require("timewarrior").open_today_view()  *timewarrior-todayview()*
+  Open the today buffer (equivalent to |:TimewarriorToday|).
+
+require("timewarrior").start_prompt_picker()  *timewarrior-picker()*
+  Pick tags via |vim.ui.select|, then start.
+
+require("timewarrior").complete_tags()    *timewarrior-complete()*
+  Omnia-completion function for tags in the today buffer.
+
+==============================================================================
+6. Today buffer                                    *timewarrior-today*
+
+The |:TimewarriorToday| command opens an `acwrite` buffer with one interval
+per line:>
+
+  09:00-11:00 projectA clientX
+  11:15- admin
+
+Write the buffer (`:write`) to persist changes back through `timew`.
+Only one open interval (ending with `-`) is allowed. Invalid format or
+duplicate intervals produce diagnostic messages.
+
+The buffer filetype is `timewarrior`.
+
+==============================================================================
+7. Tag completion                                *timewarrior-completion*
+
+Inside the today buffer, use `<C-x><C-o>` in Insert mode for tag
+completion. The omnifunc collects tags from Timewarrior data files.
+
+See the README for integration examples with nvim-cmp, blink.cmp, and
+mini.completion.
+
+==============================================================================
+8. Highlight groups                            *timewarrior-highlights*
+
+The plugin defines three highlight groups, linked by default:>
+
+  TimewarriorComment -> Comment
+  TimewarriorTime    -> Number
+  TimewarriorTag     -> Keyword
+
+Override with |:highlight|:>
+
+  :hi TimewarriorTag guifg=#ff9900
+<
+
+==============================================================================
+9. Health check                                  *timewarrior-health*
+
+Run `:checkhealth timewarrior` to verify `timew` is installed and report
+the Neovim version.
+
+==============================================================================
+10. Configuration                                  *timewarrior-config*
+
+`cache_ttl` (number, default 30) ~
+  Seconds to cache `current_activity()` and `known_tags()`.
+  Starting or stopping an interval invalidates the cache.
+
+`notify_level` (number, default `vim.log.levels.INFO`) ~
+  Minimum |vim.log| level for plugin notifications.
+  Errors are always shown regardless of this setting.
+
+`header` (list of strings) ~
+  Lines displayed at the top of the today buffer.
+  Set to `{}` to remove the header entirely.
+
+==============================================================================
+11. Timezone testing                                  *timewarrior-tz*
+
+Run the regression harness:>
+
+  bash scripts/run_tz_regression.sh
+
+Checks UTC/local conversions across UTC, Europe/Berlin,
+America/New_York, Asia/Tokyo, and Pacific/Auckland.
+
+==============================================================================
+12. Lualine                                        *timewarrior-lualine*
+
+The plugin ships a lualine component:>
+
+  require("lualine").setup({
+    sections = {
+      lualine_x = { "timewarrior" },
+    },
+  })
+<
+
+==============================================================================
+ vim:tw=78:ts=8:ft=help:norl:
