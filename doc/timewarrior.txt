@@ -41,6 +41,7 @@ all data operations to the `timew` CLI. No direct file access.
     notify_level = vim.log.levels.INFO,
     header = {
       "# Timewarrior Today",
+      "# %A, %B %d %Y",
       "# Edit lines and :write to persist",
       "# Format: HH:MM-HH:MM tag1 tag2  (or HH:MM- for active)",
       "",
@@ -147,6 +148,8 @@ the Neovim version.
 
 `header` (list of strings) ~
   Lines displayed at the top of the today buffer.
+  Evaluated via `os.date(fmt, epoch)` per-day, so strftime specifiers
+  like `%A`, `%B`, `%d`, `%Y` work. Use `%%` for a literal `%`.
   Set to `{}` to remove the header entirely.
 
 ==============================================================================

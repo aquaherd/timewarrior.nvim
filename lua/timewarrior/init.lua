@@ -7,6 +7,7 @@ local config = {
   notify_level = vim.log.levels.INFO,
   header = {
     "# Timewarrior Today",
+    "# %A, %B %d %Y",
     "# Edit lines and :write to persist",
     "# Format: HH:MM-HH:MM tag1 tag2  (or HH:MM- for active)",
     "",
@@ -375,7 +376,7 @@ function M.open_today_view(opts)
 
   local header = {}
   for _, line in ipairs(config.header) do
-    table.insert(header, line)
+    table.insert(header, os.date(line, today.start_epoch))
   end
 
   local body = {}
