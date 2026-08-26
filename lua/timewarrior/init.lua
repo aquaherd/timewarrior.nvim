@@ -17,6 +17,13 @@ end
 -- Run timew with args (list). Captures stdout+stderr.
 -- Returns { out = string, ok = bool }.
 local function timew_run(args)
+  local cmd = vim.list_extend({ "timew" }, args)
+  if vim.system then
+    local r = vim.system(cmd, { text = true }):wait()
+    local out = trim((r.stdout or "") .. "\n" .. (r.stderr or ""))
+    return { out = out, ok = r.code == 0 }
+  end
+  -- Fallback for Neovim < 0.10 (no vim.system).
   local parts = { "timew" }
   for _, a in ipairs(args) do
     table.insert(parts, vim.fn.shellescape(a))
@@ -374,6 +381,7 @@ function M.open_today_view(opts)
 
   vim.b[buf].timewarrior_entries = today_entries
   vim.b[buf].timewarrior_day = today
+  vim.b[buf].timewarrior_known_tags = known_tags
   vim.bo[buf].modified = false
 
   -- Apply initial highlighting.
@@ -384,7 +392,8 @@ function M.open_today_view(opts)
     vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
       buffer = buf,
       callback = function()
-        hl.update(buf, known_tags)
+        local tags = vim.b[buf].timewarrior_known_tags or {}
+        hl.update(buf, tags)
       end,
     })
     vim.b[buf].timewarrior_hl_autocmd_set = true
@@ -456,42 +465,55 @@ function M.open_today_view(opts)
           end
         end
 
+        local save_ok = true
+
         -- Delete removed/modified entries first (overlap would block re-add otherwise)
         for _, entry in ipairs(to_delete) do
           local res = timew_run({ "delete", "@" .. entry.id, ":yes" })
           if not res.ok then
             vim.notify("timewarrior: failed to delete @" .. entry.id .. ": " .. res.out, vim.log.levels.ERROR)
-            return
+            save_ok = false
+            break
           end
         end
 
         -- Add new/modified entries; open intervals last to avoid conflicts
-        table.sort(to_add, function(a, b)
-          if not a.end_ts and b.end_ts then return false end
-          if a.end_ts and not b.end_ts then return true end
-          return (a.start_ts or "") < (b.start_ts or "")
-        end)
+        if save_ok then
+          table.sort(to_add, function(a, b)
+            if not a.end_ts and b.end_ts then return false end
+            if a.end_ts and not b.end_ts then return true end
+            return (a.start_ts or "") < (b.start_ts or "")
+          end)
 
-        for _, item in ipairs(to_add) do
-          local args
-          if item.end_ts then
-            args = { "track", item.start_ts, "-", item.end_ts }
-          else
-            args = { "start", item.start_ts }
-          end
-          vim.list_extend(args, item.tags)
-          local res = timew_run(args)
-          if not res.ok then
-            vim.notify("timewarrior: " .. res.out, vim.log.levels.ERROR)
-            return
+          for _, item in ipairs(to_add) do
+            local args
+            if item.end_ts then
+              args = { "track", item.start_ts, "-", item.end_ts }
+            else
+              args = { "start", item.start_ts }
+            end
+            vim.list_extend(args, item.tags)
+            local res = timew_run(args)
+            if not res.ok then
+              vim.notify("timewarrior: " .. res.out, vim.log.levels.ERROR)
+              save_ok = false
+              break
+            end
           end
         end
 
+        -- Always refresh from the real state so entries never go stale.
         local refreshed = collect_today_entries(day)
         vim.b[buf].timewarrior_entries = refreshed
+        vim.b[buf].timewarrior_known_tags = collect_tags()
         invalidate_caches()
-        vim.notify("timewarrior: saved", vim.log.levels.INFO)
-        vim.bo[buf].modified = false
+
+        if save_ok then
+          vim.notify("timewarrior: saved", vim.log.levels.INFO)
+          vim.bo[buf].modified = false
+        else
+          vim.bo[buf].modified = true
+        end
       end,
     })
     vim.b[buf].timewarrior_write_autocmd_set = true
@@ -563,11 +585,6 @@ function M.start_prompt_picker()
 end
 
 function M.setup()
-  if vim.fn.executable("timew") == 0 then
-    vim.notify("timewarrior.nvim: 'timew' not found in PATH", vim.log.levels.ERROR)
-    return
-  end
-
   vim.api.nvim_create_autocmd("BufReadCmd", {
     pattern = "timewarrior://*",
     callback = function(args)
