@@ -1,4 +1,16 @@
-local timewarrior = dofile("lua/timewarrior/init.lua")
+-- Resolve repo root from this script's location so checks run from any cwd.
+local function dirname(path)
+  return path:match("^(.*)/[^/]+") or path
+end
+
+local src = debug.getinfo(1, "S").source:sub(2)
+if src:sub(1, 1) ~= "/" then
+  src = (vim.uv or vim.loop).cwd() .. "/" .. src
+end
+local root = dirname(dirname(src))
+package.path = root .. "/lua/?.lua;" .. root .. "/lua/?/init.lua;" .. package.path
+
+local timewarrior = require("timewarrior")
 local test = timewarrior._test
 
 if not test then

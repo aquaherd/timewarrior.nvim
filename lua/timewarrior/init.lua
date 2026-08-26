@@ -113,8 +113,24 @@ local function ts_is_in_local_day(start_ts, day)
   return start_epoch and start_epoch >= day.start_epoch and start_epoch < day.end_epoch
 end
 
+local _activity_cache = { value = "", expires = 0 }
+local _tags_cache = { value = {}, expires = 0 }
+
+local function invalidate_caches()
+  _activity_cache.expires = 0
+  _tags_cache.expires = 0
+end
+
 local function collect_tags()
-  local intervals = timew_export({}) or {}
+  local now = os.time()
+  if now < _tags_cache.expires then
+    return _tags_cache.value
+  end
+  local intervals = timew_export({})
+  if intervals == nil then
+    -- command failed; serve stale list instead of caching an empty one
+    return _tags_cache.value
+  end
   local seen = {}
   local tags = {}
   for _, interval in ipairs(intervals) do
@@ -126,10 +142,10 @@ local function collect_tags()
     end
   end
   table.sort(tags)
+  _tags_cache.value = tags
+  _tags_cache.expires = now + 30
   return tags
 end
-
-local _activity_cache = { value = "", expires = 0 }
 
 function M.start(tags)
   tags = tags or {}
@@ -142,7 +158,7 @@ function M.start(tags)
   else
     vim.notify("timewarrior: " .. result.out, vim.log.levels.ERROR)
   end
-  _activity_cache.expires = 0
+  invalidate_caches()
 end
 
 function M.stop()
@@ -152,7 +168,7 @@ function M.stop()
   else
     vim.notify("timewarrior: " .. result.out, vim.log.levels.ERROR)
   end
-  _activity_cache.expires = 0
+  invalidate_caches()
 end
 
 function M.current_activity()
@@ -315,8 +331,18 @@ function M.open_today_view(opts)
   local today_entries = collect_today_entries(today)
   local known_tags = collect_tags()
 
-  local buf = opts.buf or vim.api.nvim_create_buf(true, false)
-  vim.api.nvim_buf_set_name(buf, string.format("timewarrior://%04d-%02d-%02d", today.year, today.month, today.day))
+  local buf = opts.buf
+  if not buf then
+    -- Reuse an already-open view for this day instead of colliding on the name.
+    local name = string.format("timewarrior://%04d-%02d-%02d", today.year, today.month, today.day)
+    local existing = vim.fn.bufnr(name)
+    if existing > 0 then
+      buf = existing
+    else
+      buf = vim.api.nvim_create_buf(true, false)
+      vim.api.nvim_buf_set_name(buf, name)
+    end
+  end
   vim.bo[buf].buftype = "acwrite"
   vim.bo[buf].swapfile = false
   vim.bo[buf].filetype = "timewarrior"
@@ -463,7 +489,7 @@ function M.open_today_view(opts)
 
         local refreshed = collect_today_entries(day)
         vim.b[buf].timewarrior_entries = refreshed
-        _activity_cache.expires = 0
+        invalidate_caches()
         vim.notify("timewarrior: saved", vim.log.levels.INFO)
         vim.bo[buf].modified = false
       end,
@@ -510,7 +536,11 @@ function M.start_prompt_picker()
     end
 
     vim.ui.select(opts, { prompt = "Pick tag (repeat until <done>)" }, function(choice)
-      if not choice or choice == "<done>" then
+      if not choice then
+        -- Cancelled: abort without starting.
+        return
+      end
+      if choice == "<done>" then
         M.start(selected)
         return
       end
@@ -521,7 +551,10 @@ function M.start_prompt_picker()
 
   if #available == 0 then
     vim.ui.input({ prompt = "Tags (space separated): " }, function(input)
-      M.start(split_words(input or ""))
+      if input == nil then
+        return
+      end
+      M.start(split_words(input))
     end)
     return
   end

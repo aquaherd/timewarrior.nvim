@@ -12,6 +12,11 @@ TIMEZONES=(
   "Pacific/Auckland"
 )
 
+# Optional: restrict to specific zones, e.g. run_tz_regression.sh UTC Asia/Tokyo
+if [ "$#" -gt 0 ]; then
+  TIMEZONES=("$@")
+fi
+
 for tz in "${TIMEZONES[@]}"; do
   echo "== Running timezone regression with TZ=$tz =="
   TZ="$tz" nvim --headless -u NONE -l "$SCRIPT"

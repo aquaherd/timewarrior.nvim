@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  timezone-regression:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        timezone:
+          - UTC
+          - Europe/Berlin
+          - America/New_York
+          - Asia/Tokyo
+          - Pacific/Auckland
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Neovim
+        uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+
+      - name: Timezone regression (${{ matrix.timezone }})
+        run: bash scripts/run_tz_regression.sh "${{ matrix.timezone }}"
+        env:
+          TZ: ${{ matrix.timezone }}
