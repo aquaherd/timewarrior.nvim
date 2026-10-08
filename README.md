@@ -43,7 +43,7 @@ require("timewarrior").setup({
   notify_level = vim.log.levels.INFO,  -- minimum level for notifications
   header = {            -- lines shown at the top of the today view
     "# Timewarrior Today",
-    "# %A, %B %d %Y",   -- strftime format, evaluated per-day
+    "# %A, %B %d %Y",   -- e.g. "Monday, January 15 2024" (strftime format)
     "# Edit lines and :write to persist",
     "# Format: HH:MM-HH:MM tag1 tag2  (or HH:MM- for active)",
     "",
