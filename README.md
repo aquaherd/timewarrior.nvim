@@ -43,7 +43,7 @@ require("timewarrior").setup({
   notify_level = vim.log.levels.INFO,  -- minimum level for notifications
   header = {            -- lines shown at the top of the today view
     "# Timewarrior Today",
-    "# %A, %B %d %Y",   -- strftime format, evaluated per-day
+    "# %A, %B %d %Y (Week %V)",   -- e.g. "Monday, January 15 2024 (Week 03)"
     "# Edit lines and :write to persist",
     "# Format: HH:MM-HH:MM tag1 tag2  (or HH:MM- for active)",
     "",
@@ -118,6 +118,17 @@ vim.api.nvim_create_autocmd("FileType", {
 - `:TimewarriorToday` displays and edits times in your local timezone, then saves back as UTC.
 - Header lines support `strftime` format specifiers (via `os.date`), evaluated per-day. Use `%%` for a literal `%`.
 - The today view supports both closed (`HH:MM-HH:MM`) and open (`HH:MM-`) intervals.
+
+## Navigation
+
+In the today view, use these normal-mode keymaps to navigate between days and weeks:
+
+| Keymap | Action |
+|---|---|
+| `[d` | Previous day |
+| `]d` | Next day |
+| `[w` | Previous week |
+| `]w` | Next week |
 
 ## Health check
 

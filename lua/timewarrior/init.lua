@@ -7,7 +7,7 @@ local config = {
   notify_level = vim.log.levels.INFO,
   header = {
     "# Timewarrior Today",
-    "# %A, %B %d %Y",
+    "# %A, %B %d %Y (Week %V)",
     "# Edit lines and :write to persist",
     "# Format: HH:MM-HH:MM tag1 tag2  (or HH:MM- for active)",
     "",
@@ -350,6 +350,25 @@ local function items_equal(a, b)
   return true
 end
 
+local function day_offset(target_day, offset_days)
+  local epoch = target_day.start_epoch + (offset_days * 86400)
+  local t = os.date("*t", epoch)
+  return {
+    year = t.year,
+    month = t.month,
+    day = t.day,
+    start_epoch = os.time({ year = t.year, month = t.month, day = t.day, hour = 0, min = 0, sec = 0, isdst = nil }),
+    end_epoch = os.time({ year = t.year, month = t.month, day = t.day + 1, hour = 0, min = 0, sec = 0, isdst = nil }),
+  }
+end
+
+local function navigate_day(offset_days)
+  local buf = vim.api.nvim_get_current_buf()
+  local current_day = vim.b[buf].timewarrior_day or today_info()
+  local target_day = day_offset(current_day, offset_days)
+  M.open_today_view({ day = target_day })
+end
+
 function M.open_today_view(opts)
   opts = opts or {}
   local today = opts.day or today_info()
@@ -413,6 +432,35 @@ function M.open_today_view(opts)
       end,
     })
     vim.b[buf].timewarrior_hl_autocmd_set = true
+  end
+
+  -- Day and week navigation keymaps
+  if not vim.b[buf].timewarrior_nav_keymaps_set then
+    vim.api.nvim_buf_set_keymap(buf, "n", "[d", "", {
+      noremap = true,
+      silent = true,
+      callback = function() navigate_day(-1) end,
+      desc = "Previous day",
+    })
+    vim.api.nvim_buf_set_keymap(buf, "n", "]d", "", {
+      noremap = true,
+      silent = true,
+      callback = function() navigate_day(1) end,
+      desc = "Next day",
+    })
+    vim.api.nvim_buf_set_keymap(buf, "n", "[w", "", {
+      noremap = true,
+      silent = true,
+      callback = function() navigate_day(-7) end,
+      desc = "Previous week",
+    })
+    vim.api.nvim_buf_set_keymap(buf, "n", "]w", "", {
+      noremap = true,
+      silent = true,
+      callback = function() navigate_day(7) end,
+      desc = "Next week",
+    })
+    vim.b[buf].timewarrior_nav_keymaps_set = true
   end
 
   if not vim.b[buf].timewarrior_write_autocmd_set then

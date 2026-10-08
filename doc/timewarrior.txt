@@ -41,7 +41,7 @@ all data operations to the `timew` CLI. No direct file access.
     notify_level = vim.log.levels.INFO,
     header = {
       "# Timewarrior Today",
-      "# %A, %B %d %Y",
+      "# %A, %B %d %Y (Week %V)",
       "# Edit lines and :write to persist",
       "# Format: HH:MM-HH:MM tag1 tag2  (or HH:MM- for active)",
       "",
@@ -107,7 +107,21 @@ duplicate intervals produce diagnostic messages.
 The buffer filetype is `timewarrior`.
 
 ==============================================================================
-7. Tag completion                                *timewarrior-completion*
+7. Navigation                                    *timewarrior-navigation*
+
+In the today buffer, use these normal-mode mappings to navigate between
+days and weeks:
+
+  [d  Previous day
+  ]d  Next day
+  [w  Previous week
+  ]w  Next week
+
+Each mapping opens a new buffer for the target day, with the header
+updated to show the correct date, weekday, and week number.
+
+==============================================================================
+8. Tag completion                                *timewarrior-completion*
 
 Inside the today buffer, use `<C-x><C-o>` in Insert mode for tag
 completion. The omnifunc collects tags from Timewarrior data files.
@@ -149,8 +163,8 @@ the Neovim version.
 `header` (list of strings) ~
   Lines displayed at the top of the today buffer.
   Evaluated via `os.date(fmt, epoch)` per-day, so strftime specifiers
-  like `%A`, `%B`, `%d`, `%Y` work. Use `%%` for a literal `%`.
-  Set to `{}` to remove the header entirely.
+  like `%A`, `%B`, `%d`, `%Y`, `%V` (ISO week number) work. Use `%%` for a
+  literal `%`. Set to `{}` to remove the header entirely.
 
 ==============================================================================
 11. Timezone testing                                  *timewarrior-tz*
